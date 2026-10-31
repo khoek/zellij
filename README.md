@@ -81,6 +81,31 @@ Installing Zellij from the `main` branch is not recommended. This branch represe
 
 That being said - no-one will stop you from using it (and bug reports involving new features are greatly appreciated), but please consider using the latest release instead as detailed at the top of this section.
 
+## Pane attachments in this fork
+
+`zellij attach SESSION --pane terminal_17` attaches the current terminal to one existing terminal
+pane. A bare numeric pane ID is also accepted. This view displays the application's contents
+without session bars or pane frames and sends application input directly to that pane. Other
+clients can attach to the session normally and navigate all of its tabs.
+
+A never-started suspended command starts after the attachment is established. The attachment
+returns the command's exit status when it finishes, or a nonzero status if its pane is removed.
+Disconnecting the attachment leaves the process running. The command's `close_on_exit` setting
+continues to control whether its pane is removed. Scrolling and terminal sizing remain shared.
+Pane attachments require a running local session; they do not resurrect sessions or restart
+completed commands. The client checks that the server supports this attachment type.
+
+For launchers, use the existing `new-tab --no-focus --start-suspended --close-on-exit` command,
+read its terminal pane ID with `list-panes --json`, then attach with `--pane`. No other client's
+focus changes during tab creation. Background tab creation retains valid session dimensions
+when no clients are attached.
+
+Build this fork with the bundled plugin assets:
+
+```sh
+cargo build --no-default-features --features vendored_curl,web_server_capability
+```
+
 ## How do I start a development environment?
 
 * Clone the project

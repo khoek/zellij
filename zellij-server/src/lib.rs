@@ -126,6 +126,7 @@ pub enum ServerInstruction {
     Render(Option<HashMap<ClientId, RenderPayload>>),
     UnblockInputThread,
     ClientExit(ClientId, Option<NotificationEnd>),
+    PaneClientExit(ClientId, i32),
     RemoveClient(ClientId),
     Error(String),
     KillSession,
@@ -258,6 +259,7 @@ impl From<&ServerInstruction> for ServerContext {
             ServerInstruction::Render(..) => ServerContext::Render,
             ServerInstruction::UnblockInputThread => ServerContext::UnblockInputThread,
             ServerInstruction::ClientExit(..) => ServerContext::ClientExit,
+            ServerInstruction::PaneClientExit(..) => ServerContext::ClientExit,
             ServerInstruction::RemoveClient(..) => ServerContext::RemoveClient,
             ServerInstruction::Error(_) => ServerContext::Error,
             ServerInstruction::KillSession => ServerContext::KillSession,
@@ -4302,6 +4304,7 @@ pub fn start_server_impl(
                         client_attributes.size,
                         tab_position_to_focus,
                         pane_id_to_focus,
+                        cli_assets.pane_attachment,
                     ))
                     .unwrap();
                 session_data
@@ -4361,8 +4364,25 @@ pub fn start_server_impl(
                     ))
                     .unwrap();
             },
+            ServerInstruction::PaneClientExit(client_id, status) => {
+                let _ = os_input.send_to_client(
+                    client_id,
+                    ServerToClientMsg::Exit {
+                        exit_reason: ExitReason::CustomExitStatus(status),
+                    },
+                );
+                remove_client!(client_id, os_input, session_state, session_data);
+            },
             ServerInstruction::UnblockInputThread => {
-                let client_ids = session_state.read().unwrap().client_ids();
+                // CLI connections receive their acknowledgement from their own route thread.
+                // A broadcast must not complete a concurrent CLI action before its result.
+                let client_ids: Vec<_> = session_state
+                    .read()
+                    .unwrap()
+                    .clients
+                    .iter()
+                    .filter_map(|(id, data)| data.is_some().then_some(*id))
+                    .collect();
                 for client_id in client_ids {
                     send_to_client!(
                         client_id,

@@ -44,6 +44,7 @@ mod attention;
 mod hidden_bars;
 mod live_view;
 mod mirror;
+mod pane_clients;
 mod popups;
 
 use log::{debug, warn};
@@ -689,6 +690,7 @@ pub enum ScreenInstruction {
         Size,                // client viewport size
         Option<usize>,       // tab position to focus
         Option<(u32, bool)>, // (pane_id, is_plugin) => pane_id to focus
+        Option<u32>,         // pane attachment
     ),
     RemoveClient(ClientId),
     UpdateSearch(Vec<u8>, ClientId, Option<NotificationEnd>),
@@ -902,6 +904,7 @@ pub enum ScreenInstruction {
     ResizePaneWithId(ResizeStrategy, PaneId),
     EditScrollbackForPaneWithId(PaneId, Option<NotificationEnd>),
     WriteToPaneId(Vec<u8>, PaneId, Option<NotificationEnd>),
+    PaneClientInput(ClientId, zellij_utils::pane_mirror::MirrorInput),
     Paste(Vec<u8>, Option<PaneId>, ClientId, Option<NotificationEnd>),
     SetPaneColor(
         PaneId,
@@ -1523,6 +1526,7 @@ impl From<&ScreenInstruction> for ScreenContext {
                 ScreenContext::EditScrollbackForPaneWithId
             },
             ScreenInstruction::WriteToPaneId(..) => ScreenContext::WriteToPaneId,
+            ScreenInstruction::PaneClientInput(..) => ScreenContext::WriteToPaneId,
             ScreenInstruction::Paste(..) => ScreenContext::Paste,
             ScreenInstruction::SetPaneColor(..) => ScreenContext::SetPaneColor,
             ScreenInstruction::WriteKeyToPaneId(..) => ScreenContext::WriteKeyToPaneId,
@@ -2054,6 +2058,7 @@ pub(crate) struct Screen {
     /// The indices of this [`Screen`]'s active [`Tab`]s.
     active_tab_ids: BTreeMap<ClientId, usize>,
     client_sizes: HashMap<ClientId, Size>,
+    pane_clients: HashMap<ClientId, PaneId>,
     global_last_active_tab_id: usize,
     tab_history: BTreeMap<ClientId, Vec<usize>>,
     pane_history: BTreeMap<ClientId, Vec<PaneId>>,
@@ -2424,6 +2429,7 @@ impl Screen {
             highest_client_id_seen: 0,
             active_tab_ids: BTreeMap::new(),
             client_sizes: HashMap::new(),
+            pane_clients: HashMap::new(),
             global_last_active_tab_id: 0,
             tabs: BTreeMap::new(),
             last_single_pane_tab_names: HashMap::new(),
@@ -3011,6 +3017,11 @@ impl Screen {
     fn close_tab_by_id(&mut self, tab_id: usize) -> Result<()> {
         let err_context = || format!("failed to close tab at index {tab_id:?}");
 
+        if let Some(tab) = self.tabs.get(&tab_id) {
+            for pane_id in tab.get_all_pane_ids() {
+                self.finish_pane_clients(pane_id, None)?;
+            }
+        }
         let mut tab_to_close = self.tabs.remove(&tab_id).with_context(err_context)?;
         self.attention.remove_tab(tab_id);
         let popups_of_closed_tab = tab_to_close.drain_popups();
@@ -3112,7 +3123,13 @@ impl Screen {
                     .and_then(|client_id| self.client_sizes.get(&client_id).copied())
             })
             .or_else(|| self.client_sizes.values().next().copied())
-            .unwrap_or_default()
+            .or_else(|| {
+                self.tabs
+                    .values()
+                    .map(|tab| tab.size)
+                    .find(|size| size.rows > 0 && size.cols > 0)
+            })
+            .unwrap_or(Size { rows: 24, cols: 80 })
     }
 
     fn size_of_tab_of_client(&self, client_id: ClientId) -> Size {
@@ -3155,6 +3172,7 @@ impl Screen {
                     continue;
                 }
                 if let Some(size) = self.client_sizes.get(client_id) {
+                    let size = self.pane_client_layout_size(*client_id, tab_id, *size);
                     rows.push(size.rows);
                     cols.push(size.cols);
                 }
@@ -5786,6 +5804,7 @@ impl Screen {
                 self.structured_render_clients.clone(),
             );
 
+            output.capture_panes(self.pane_clients.values().copied());
             output.collect_ansi_pane_contents =
                 self.pane_render_subscribers.values().any(|s| s.ansi);
 
@@ -5799,6 +5818,8 @@ impl Screen {
                     tabs_to_close.push(*tab_index);
                 }
             }
+
+            self.render_pane_clients(&mut output)?;
 
             for (client_id, vte_instructions) in self.pending_client_vte_instructions.drain() {
                 for vte_instruction in vte_instructions {
@@ -5877,7 +5898,9 @@ impl Screen {
             }
 
             for (client_id, tab_index) in &self.active_tab_ids {
-                if self.watcher_clients.contains_key(client_id) {
+                if self.watcher_clients.contains_key(client_id)
+                    || self.pane_clients.contains_key(client_id)
+                {
                     continue;
                 }
                 if let Some(tab) = self.tabs.get(tab_index) {
@@ -6837,6 +6860,7 @@ impl Screen {
     }
 
     pub fn remove_client(&mut self, client_id: ClientId) -> Result<()> {
+        self.pane_clients.remove(&client_id);
         let err_context = || format!("failed to remove client {client_id}");
         self.highest_client_id_seen = self.highest_client_id_seen.max(client_id);
 
@@ -10591,6 +10615,7 @@ impl Screen {
         }
     }
     fn notify_pane_closed_to_subscribers(&mut self, pane_id: zellij_utils::data::PaneId) {
+        self.finish_pane_clients(pane_id.into(), None).non_fatal();
         self.notify_mirrors_pane_closed(pane_id.into());
         if let zellij_utils::data::PaneId::Plugin(plugin_pane_id) = pane_id {
             self.forget_live_views_of_closed_pane(plugin_pane_id);
@@ -12442,6 +12467,7 @@ pub(crate) fn screen_thread_main(
                 // waiting for it
                 exit_status,
             ) => {
+                screen.finish_pane_clients(id, exit_status)?;
                 if let PaneId::Plugin(plugin_id) = id {
                     if screen.close_popup_with_plugin_id(plugin_id) {
                         screen.render(None)?;
@@ -12503,6 +12529,7 @@ pub(crate) fn screen_thread_main(
                 screen.retain_only_existing_panes_in_pane_groups();
             },
             ScreenInstruction::HoldPane(id, exit_status, run_command) => {
+                screen.finish_pane_clients(id, exit_status)?;
                 let is_first_run = false;
                 let mut found = false;
                 for tab in screen.tabs.values_mut() {
@@ -13163,9 +13190,16 @@ pub(crate) fn screen_thread_main(
                 client_size,
                 tab_position_to_focus,
                 pane_id_to_focus,
+                pane_attachment,
             ) => {
+                if let Some(pane_id) = pane_attachment {
+                    if !screen.prepare_pane_client(client_id, PaneId::Terminal(pane_id))? {
+                        continue;
+                    }
+                }
                 screen.set_client_size(client_id, client_size);
                 screen.add_client(client_id, is_web_client)?;
+                let pane_id_to_focus = pane_attachment.map(|id| (id, false)).or(pane_id_to_focus);
                 let pane_id = pane_id_to_focus.map(|(pane_id, is_plugin)| {
                     if is_plugin {
                         PaneId::Plugin(pane_id)
@@ -13178,13 +13212,18 @@ pub(crate) fn screen_thread_main(
                 } else if let Some(tab_position_to_focus) = tab_position_to_focus {
                     screen.go_to_tab(tab_position_to_focus, client_id)?;
                 }
-                screen.show_guest_modals_for_new_client(client_id);
-                screen.show_hidden_bars_notification_on_attach(client_id);
+                if pane_attachment.is_none() {
+                    screen.show_guest_modals_for_new_client(client_id);
+                    screen.show_hidden_bars_notification_on_attach(client_id);
+                }
                 let focused_pane_id = screen.get_active_pane_id(&client_id);
                 if let Some(focused) = focused_pane_id {
                     screen.report_key_passthrough_state(client_id, focused, focused);
                 }
                 screen.sync_scroll_mode_on_focus(client_id)?;
+                if pane_attachment.is_some() {
+                    screen.start_pane_client(client_id)?;
+                }
                 for event in pending_events_waiting_for_client.drain(..) {
                     screen.bus.senders.send_to_screen(event).non_fatal();
                 }
@@ -14697,6 +14736,10 @@ pub(crate) fn screen_thread_main(
                         break;
                     }
                 }
+                screen.render(None)?;
+            },
+            ScreenInstruction::PaneClientInput(client_id, input) => {
+                screen.pane_client_input(client_id, input)?;
                 screen.render(None)?;
             },
             ScreenInstruction::WriteToPaneId(bytes, pane_id, _completion) => {

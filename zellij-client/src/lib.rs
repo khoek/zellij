@@ -208,6 +208,7 @@ use zellij_utils::{
 /// Instructions related to the client-side application
 #[derive(Debug, Clone)]
 pub(crate) enum ClientInstruction {
+    PaneAttached(u32),
     Error(String),
     Render(String),
     UnblockInputThread,
@@ -240,6 +241,7 @@ pub(crate) enum ClientInstruction {
 impl From<ServerToClientMsg> for ClientInstruction {
     fn from(instruction: ServerToClientMsg) -> Self {
         match instruction {
+            ServerToClientMsg::PaneAttached { pane_id } => ClientInstruction::PaneAttached(pane_id),
             ServerToClientMsg::Exit { exit_reason } => ClientInstruction::Exit(exit_reason),
             ServerToClientMsg::Render { content } => ClientInstruction::Render(content),
             ServerToClientMsg::UnblockInputThread => ClientInstruction::UnblockInputThread,
@@ -299,6 +301,7 @@ impl From<&ClientInstruction> for ClientContext {
             ClientInstruction::Error(_) => ClientContext::Error,
             ClientInstruction::Render(_) => ClientContext::Render,
             ClientInstruction::UnblockInputThread => ClientContext::UnblockInputThread,
+            ClientInstruction::PaneAttached(_) => ClientContext::Connected,
             ClientInstruction::Connected => ClientContext::Connected,
             ClientInstruction::Log(_) => ClientContext::Log,
             ClientInstruction::LogError(_) => ClientContext::LogError,
@@ -1077,6 +1080,7 @@ pub fn first_message(
                   cwd: Option<PathBuf>,
                   initial_panes: Option<Vec<CommandOrPlugin>>| {
         CliAssets {
+            pane_attachment: cli_args.pane_attachment(),
             config_file_path: Config::config_file_path(cli_args),
             config_dir: cli_args.config_dir.clone(),
             should_ignore_config: cli_args.is_setup_clean(),
@@ -1173,6 +1177,7 @@ pub fn start_client(
         start_server_detached(os_input, cli_args, config, config_options, info);
         return None;
     }
+    let pane_attachment = cli_args.pane_attachment();
     info!("Starting Zellij client!");
 
     let reminders = zellij_utils::desktop_integration::ReminderContext {
@@ -1334,7 +1339,11 @@ pub fn start_client(
         });
     }
 
-    let on_force_close = config_options.on_force_close.unwrap_or_default();
+    let on_force_close = if pane_attachment.is_some() {
+        zellij_utils::input::options::OnForceClose::Detach
+    } else {
+        config_options.on_force_close.unwrap_or_default()
+    };
     let stdin_ansi_parser = Arc::new(Mutex::new(StdinAnsiParser::new()));
 
     let (resize_sender, resize_receiver) = std::sync::mpsc::channel::<()>();
@@ -1520,6 +1529,8 @@ pub fn start_client(
         std::process::exit(1);
     };
 
+    let mut pane_attachment_confirmed = pane_attachment.is_none();
+    let mut exit_status = if pane_attachment.is_some() { 1 } else { 0 };
     let mut exit_msg = String::new();
     let mut host_status_writer = host_status::HostStatusWriter::default();
     let mut synchronised_output = match os_input.env_variable("TERM").as_deref() {
@@ -1542,13 +1553,34 @@ pub fn start_client(
                 if let ExitReason::Error(_) = reason {
                     handle_error(reason.to_string(), outer_grapheme_cluster_mode.is_enabled());
                 }
-                exit_msg = reason.to_string();
+                if let ExitReason::CustomExitStatus(code) = reason {
+                    exit_status = code;
+                }
+                if pane_attachment.is_none() {
+                    exit_msg = reason.to_string();
+                }
                 break;
             },
             ClientInstruction::Error(backtrace) => {
                 handle_error(backtrace, outer_grapheme_cluster_mode.is_enabled());
             },
+            ClientInstruction::PaneAttached(pane_id) => {
+                if pane_attachment != Some(pane_id) {
+                    handle_error(
+                        "Server attached to an unexpected pane".to_owned(),
+                        outer_grapheme_cluster_mode.is_enabled(),
+                    );
+                }
+                pane_attachment_confirmed = true;
+            },
             ClientInstruction::Render(output) => {
+                if !pane_attachment_confirmed {
+                    os_input.send_to_server(ClientToServerMsg::ClientExited);
+                    handle_error(
+                        "The running Zellij server does not support pane attachment; restart it with the pane-attachment fork".to_owned(),
+                        outer_grapheme_cluster_mode.is_enabled(),
+                    );
+                }
                 let mut stdout = os_input.get_stdout_writer();
                 if let Err(e) = write_render_output(&mut *stdout, &output, synchronised_output) {
                     let message = format!("Failed to write to the terminal: {}", e);
@@ -1784,7 +1816,7 @@ pub fn start_client(
         os_input.restore_console_mode();
         let mut stdout = os_input.get_stdout_writer();
         let _ = stdout.write_all(goodbye_message.as_bytes());
-        if std::io::IsTerminal::is_terminal(&std::io::stdout()) {
+        if pane_attachment.is_none() && std::io::IsTerminal::is_terminal(&std::io::stdout()) {
             if let Some(line) = exit_line_once(&reminders) {
                 let _ = stdout.write_all(line.as_bytes());
             }
@@ -1801,7 +1833,9 @@ pub fn start_client(
     }
 
     let _ = send_input_instructions.send(InputInstruction::Exit);
-
+    if pane_attachment.is_some() {
+        std::process::exit(exit_status);
+    }
     reconnect_to_session
 }
 
@@ -1822,6 +1856,7 @@ pub fn start_server_detached(
             envs::set_session_name(name.clone());
 
             let cli_assets = CliAssets {
+                pane_attachment: None,
                 config_file_path: Config::config_file_path(&cli_args),
                 config_dir: cli_args.config_dir.clone(),
                 should_ignore_config: cli_args.is_setup_clean(),
@@ -1868,6 +1903,7 @@ pub fn start_server_detached(
             envs::set_session_name(name.clone());
 
             let cli_assets = CliAssets {
+                pane_attachment: None,
                 config_file_path: Config::config_file_path(&cli_args),
                 config_dir: cli_args.config_dir.clone(),
                 should_ignore_config: cli_args.is_setup_clean(),

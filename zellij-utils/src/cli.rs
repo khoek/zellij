@@ -93,6 +93,13 @@ pub struct CliArgs {
 }
 
 impl CliArgs {
+    pub fn pane_attachment(&self) -> Option<u32> {
+        match &self.command {
+            Some(Command::Sessions(Sessions::Attach { args, .. })) => args.pane,
+            _ => None,
+        }
+    }
+
     pub fn is_setup_clean(&self) -> bool {
         if let Some(Command::Setup(ref setup)) = &self.command {
             if setup.clean {
@@ -517,6 +524,12 @@ pub fn prompt_element_help(element: &str, color: bool) -> String {
 
 #[derive(Debug, Args, Default, Clone, Serialize, Deserialize)]
 pub struct AttachArgs {
+    /// Attach only to this terminal pane, without the session UI or navigation.
+    /// Starts a suspended command and exits with the command's status.
+    #[clap(long, value_parser = parse_terminal_pane, conflicts_with_all = ["create", "index", "initial_command"])]
+    #[serde(default)]
+    pub pane: Option<u32>,
+
     /// Name of the session to attach to.
     #[clap(value_parser)]
     pub session_name: Option<String>,
@@ -568,6 +581,14 @@ pub struct AttachArgs {
     /// Start the initial command suspended, only running it after you first press ENTER
     #[clap(long, requires("initial_command"))]
     pub start_suspended: bool,
+}
+
+fn parse_terminal_pane(value: &str) -> Result<u32, String> {
+    value
+        .strip_prefix("terminal_")
+        .unwrap_or(value)
+        .parse()
+        .map_err(|_| "expected a terminal pane ID, e.g. terminal_17 or 17".to_owned())
 }
 
 impl AttachArgs {
@@ -707,6 +728,9 @@ impl TerminalArgs {
     }
 
     pub fn validate(&self) -> Result<(), String> {
+        if self.attach.pane.is_some() {
+            return Err("Use `zellij attach --pane` for a terminal pane attachment".to_owned());
+        }
         if self.hold && self.command().is_empty() {
             return Err("--hold needs a command to keep open: give one with -e".to_owned());
         }
@@ -888,7 +912,7 @@ pub enum Sessions {
         args: AttachArgs,
 
         /// Create a detached session in the background if one does not exist
-        #[clap(short('b'), long, value_parser)]
+        #[clap(short('b'), long, value_parser, conflicts_with("pane"))]
         create_background: bool,
     },
 
@@ -2336,6 +2360,26 @@ mod tests {
         let mut full_args = vec!["zellij".to_owned()];
         full_args.extend(args.iter().map(|arg| arg.to_string()));
         on_large_stack(move || CliArgs::try_parse_from(full_args))
+    }
+
+    #[test]
+    fn pane_attachment_accepts_terminal_ids_and_rejects_creation() {
+        for pane in ["17", "terminal_17"] {
+            assert_eq!(
+                try_parse(&["attach", "kai", "--pane", pane])
+                    .unwrap()
+                    .pane_attachment(),
+                Some(17)
+            );
+        }
+        for args in [
+            vec!["attach", "kai", "--pane", "plugin_17"],
+            vec!["attach", "kai", "--pane", "17", "--create"],
+            vec!["attach", "kai", "--pane", "17", "--create-background"],
+            vec!["attach", "kai", "--pane", "17", "--", "sh"],
+        ] {
+            assert!(try_parse(&args).is_err(), "{args:?}");
+        }
     }
 
     fn parse_subscribe(args: &[&str]) -> SubscribeCli {

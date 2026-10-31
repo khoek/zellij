@@ -32,8 +32,11 @@ message ServerToClientMsg {
     SessionPreviewMsg session_preview = 25;
     ServerPaneMirrorMsg pane_mirror = 26;
     PasteFromClipboardMsg paste_from_clipboard = 27;
+    PaneAttachedMsg pane_attached = 28;
   }
 }
+
+message PaneAttachedMsg { uint32 pane_id = 1; }
 
 message SessionPreviewMsg {
   optional SessionPreview preview = 1;

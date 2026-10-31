@@ -1,3 +1,4 @@
+mod pane_clients;
 use base64::engine::general_purpose::STANDARD as BASE64_ENCODER;
 use base64::engine::Engine as _;
 
@@ -1852,8 +1853,17 @@ fn append_sideband_instruction(sideband: &mut Vec<u8>, instruction: &str) {
     sideband.extend_from_slice(instruction.as_bytes());
 }
 
+type PaneRenderAssets = (
+    Vec<CharacterChunk>,
+    Option<String>,
+    Vec<SixelImageChunk>,
+    Vec<KittyImageChunk>,
+);
+
 #[derive(Clone, Debug, Default)]
 pub struct Output {
+    captured_panes: HashSet<PaneId>,
+    pane_assets: HashMap<PaneId, PaneRenderAssets>,
     pre_vte_instructions: HashMap<ClientId, Vec<String>>,
     post_vte_instructions: HashMap<ClientId, Vec<String>>,
     client_character_chunks: HashMap<ClientId, Vec<CharacterChunk>>,

@@ -914,6 +914,7 @@ message Position {
 }
 
 message CliAssets {
+  optional uint32 pane_attachment = 15;
   optional string config_file_path = 1;
   optional string config_dir = 2;
   bool should_ignore_config = 3;
