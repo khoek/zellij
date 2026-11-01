@@ -1,6 +1,7 @@
 mod pane_clients;
 use base64::engine::general_purpose::STANDARD as BASE64_ENCODER;
 use base64::engine::Engine as _;
+pub(crate) use pane_clients::strip_nested_session_frames;
 
 use crate::panes::Row;
 

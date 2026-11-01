@@ -5823,6 +5823,11 @@ impl Screen {
 
             for (client_id, vte_instructions) in self.pending_client_vte_instructions.drain() {
                 for vte_instruction in vte_instructions {
+                    let vte_instruction = if self.pane_clients.contains_key(&client_id) {
+                        crate::output::strip_nested_session_frames(&vte_instruction)
+                    } else {
+                        vte_instruction
+                    };
                     output.add_post_vte_instruction_to_multiple_clients(
                         std::iter::once(client_id),
                         &vte_instruction,
