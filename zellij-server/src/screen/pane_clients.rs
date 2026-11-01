@@ -32,6 +32,13 @@ impl Screen {
             }
             return Ok(false);
         }
+        if let Some(pane) = self
+            .tabs
+            .values_mut()
+            .find_map(|tab| tab.get_pane_with_id_mut(pane_id))
+        {
+            pane.render_full_viewport();
+        }
         self.pane_clients.insert(client_id, pane_id);
         if let (PaneId::Terminal(pane_id), Some(os_input)) = (pane_id, &self.bus.os_input) {
             os_input.send_to_client(client_id, ServerToClientMsg::PaneAttached { pane_id })?;

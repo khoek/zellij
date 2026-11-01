@@ -3178,6 +3178,15 @@ impl Screen {
                 }
             }
         }
+        for (&client_id, &pane_id) in &self.pane_clients {
+            if self.tab_id_containing_pane(pane_id) == Some(tab_id) {
+                if let Some(size) = self.client_sizes.get(&client_id) {
+                    let size = self.pane_client_layout_size(client_id, tab_id, *size);
+                    rows.push(size.rows);
+                    cols.push(size.cols);
+                }
+            }
+        }
         for client_id in fit_disabled_clients {
             if let Some(reference) = self.reference_size_for_client(client_id) {
                 rows.push(reference.rows);
@@ -5775,6 +5784,7 @@ impl Screen {
             .borrow()
             .keys()
             .any(|id| !self.watcher_clients.contains_key(id));
+        let has_pane_clients = !self.pane_clients.is_empty();
         let has_watchers = !self.watcher_clients.is_empty(); // No change needed
 
         self.sync_structured_client_viewports();
@@ -5790,7 +5800,7 @@ impl Screen {
         let mut tabs_to_close = vec![];
 
         // === PHASE 1: Render for regular clients ===
-        if has_regular_clients {
+        if has_regular_clients || has_pane_clients {
             let mut output = Output::new(
                 self.sixel_image_store.clone(),
                 self.character_cell_size.clone(),
@@ -6865,7 +6875,7 @@ impl Screen {
     }
 
     pub fn remove_client(&mut self, client_id: ClientId) -> Result<()> {
-        self.pane_clients.remove(&client_id);
+        let pane_client_target = self.pane_clients.remove(&client_id);
         let err_context = || format!("failed to remove client {client_id}");
         self.highest_client_id_seen = self.highest_client_id_seen.max(client_id);
 
@@ -6974,6 +6984,11 @@ impl Screen {
         if let Some(prev_tab_id) = previously_active_tab_id {
             self.recompute_tab_size(prev_tab_id)
                 .with_context(err_context)?;
+        }
+        if let Some(pane_id) = pane_client_target {
+            if let Some(tab_id) = self.tab_id_containing_pane(pane_id) {
+                self.recompute_tab_size(tab_id).with_context(err_context)?;
+            }
         }
         self.mode_info.remove(&client_id);
         self.client_keybinds.remove(&client_id);
@@ -12975,13 +12990,20 @@ pub(crate) fn screen_thread_main(
                     continue;
                 }
                 let active_tab_id = screen.active_tab_ids.get(&client_id).copied();
-                if let Some(tab_id) = active_tab_id {
+                let pane_tab_id = screen
+                    .pane_clients
+                    .get(&client_id)
+                    .and_then(|pane_id| screen.tab_id_containing_pane(*pane_id));
+                if let Some(tab_id) = active_tab_id.or(pane_tab_id) {
                     screen.recompute_tab_size(tab_id)?;
                 }
                 if !screen.client_is_web(client_id) {
                     screen.recompute_fit_disabled_tabs()?;
                 }
-                if active_tab_id.is_some() || !screen.client_is_web(client_id) {
+                if active_tab_id.is_some()
+                    || pane_tab_id.is_some()
+                    || !screen.client_is_web(client_id)
+                {
                     screen.log_and_report_session_state()?;
                     screen.render(None)?;
                 }
@@ -13197,36 +13219,37 @@ pub(crate) fn screen_thread_main(
                 pane_id_to_focus,
                 pane_attachment,
             ) => {
-                if let Some(pane_id) = pane_attachment {
+                let pane_attachment = if let Some(pane_id) = pane_attachment {
                     if !screen.prepare_pane_client(client_id, PaneId::Terminal(pane_id))? {
                         continue;
                     }
-                }
+                    Some(pane_id)
+                } else {
+                    None
+                };
                 screen.set_client_size(client_id, client_size);
-                screen.add_client(client_id, is_web_client)?;
-                let pane_id_to_focus = pane_attachment.map(|id| (id, false)).or(pane_id_to_focus);
-                let pane_id = pane_id_to_focus.map(|(pane_id, is_plugin)| {
-                    if is_plugin {
-                        PaneId::Plugin(pane_id)
-                    } else {
-                        PaneId::Terminal(pane_id)
-                    }
-                });
-                if let Some(pane_id) = pane_id {
-                    screen.focus_pane_with_id(pane_id, true, false, client_id)?;
-                } else if let Some(tab_position_to_focus) = tab_position_to_focus {
-                    screen.go_to_tab(tab_position_to_focus, client_id)?;
-                }
                 if pane_attachment.is_none() {
+                    screen.add_client(client_id, is_web_client)?;
+                    let pane_id = pane_id_to_focus.map(|(pane_id, is_plugin)| {
+                        if is_plugin {
+                            PaneId::Plugin(pane_id)
+                        } else {
+                            PaneId::Terminal(pane_id)
+                        }
+                    });
+                    if let Some(pane_id) = pane_id {
+                        screen.focus_pane_with_id(pane_id, true, false, client_id)?;
+                    } else if let Some(tab_position_to_focus) = tab_position_to_focus {
+                        screen.go_to_tab(tab_position_to_focus, client_id)?;
+                    }
                     screen.show_guest_modals_for_new_client(client_id);
                     screen.show_hidden_bars_notification_on_attach(client_id);
-                }
-                let focused_pane_id = screen.get_active_pane_id(&client_id);
-                if let Some(focused) = focused_pane_id {
-                    screen.report_key_passthrough_state(client_id, focused, focused);
-                }
-                screen.sync_scroll_mode_on_focus(client_id)?;
-                if pane_attachment.is_some() {
+                    let focused_pane_id = screen.get_active_pane_id(&client_id);
+                    if let Some(focused) = focused_pane_id {
+                        screen.report_key_passthrough_state(client_id, focused, focused);
+                    }
+                    screen.sync_scroll_mode_on_focus(client_id)?;
+                } else {
                     screen.start_pane_client(client_id)?;
                 }
                 for event in pending_events_waiting_for_client.drain(..) {
@@ -13243,7 +13266,8 @@ pub(crate) fn screen_thread_main(
                 screen.client_session_histories.remove(&client_id);
                 screen.last_session_history_infos.remove(&client_id);
                 screen.pending_session_card_away_since.remove(&client_id);
-                let was_attached = screen.connected_clients.borrow().contains_key(&client_id);
+                let was_attached = screen.connected_clients.borrow().contains_key(&client_id)
+                    || screen.pane_clients.contains_key(&client_id);
                 screen.clear_live_views_of_client(client_id);
                 screen.mode_hints_requested.remove(&client_id);
                 screen.remove_client(client_id).non_fatal();
