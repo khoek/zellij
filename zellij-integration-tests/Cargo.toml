@@ -9,8 +9,8 @@ version.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-zellij-client = { path = "../zellij-client", version = "0.46.0-k.5931af3d" }
-zellij-server = { path = "../zellij-server", version = "0.46.0-k.5931af3d" }
+zellij-client = { path = "../zellij-client", version = "0.46.0-k.97427d6b" }
+zellij-server = { path = "../zellij-server", version = "0.46.0-k.97427d6b" }
 zellij-utils = { workspace = true }
 anyhow = { workspace = true }
 base64 = { version = "0.22", default-features = false, features = ["std"] }
@@ -31,6 +31,6 @@ isahc = { workspace = true }
 serde_json = { workspace = true }
 tempfile = { workspace = true }
 tokio-tungstenite = "0.28"
-zellij-client = { path = "../zellij-client", version = "0.46.0-k.5931af3d", features = ["web_server_capability"] }
-zellij-server = { path = "../zellij-server", version = "0.46.0-k.5931af3d", features = ["web_server_capability"] }
-zellij-terminal = { path = "../zellij-terminal", version = "0.46.0-k.5931af3d", features = ["test-support"] }
+zellij-client = { path = "../zellij-client", version = "0.46.0-k.97427d6b", features = ["web_server_capability"] }
+zellij-server = { path = "../zellij-server", version = "0.46.0-k.97427d6b", features = ["web_server_capability"] }
+zellij-terminal = { path = "../zellij-terminal", version = "0.46.0-k.97427d6b", features = ["test-support"] }
