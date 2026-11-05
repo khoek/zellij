@@ -99,6 +99,9 @@ Pane attachments do not participate in nested-session discovery or emit its cont
 the host terminal. Ordinary session attachments retain nested-session discovery.
 Suspended commands start with the attachment's terminal size already applied, so applications
 cannot initialize against a zero-sized PTY and miss an early resize.
+When a command exits after restoring its normal screen, the attachment prints that final screen
+into the host terminal after leaving its alternate screen. Application exit summaries, such as
+Codex's resume command and session ID, remain available in ordinary terminal scrollback.
 Application bells and desktop notifications reach that pane's attachments, and host focus
 changes reach the application so it can notify when the terminal is unfocused.
 

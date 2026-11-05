@@ -294,6 +294,9 @@ pub enum ServerToClientMsg {
     PaneAttached {
         pane_id: u32,
     },
+    PaneExitOutput {
+        output: String,
+    },
     Render {
         content: String,
     },

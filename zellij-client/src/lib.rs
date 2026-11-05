@@ -209,6 +209,7 @@ use zellij_utils::{
 #[derive(Debug, Clone)]
 pub(crate) enum ClientInstruction {
     PaneAttached(u32),
+    PaneExitOutput(String),
     Error(String),
     Render(String),
     UnblockInputThread,
@@ -242,6 +243,9 @@ impl From<ServerToClientMsg> for ClientInstruction {
     fn from(instruction: ServerToClientMsg) -> Self {
         match instruction {
             ServerToClientMsg::PaneAttached { pane_id } => ClientInstruction::PaneAttached(pane_id),
+            ServerToClientMsg::PaneExitOutput { output } => {
+                ClientInstruction::PaneExitOutput(output)
+            },
             ServerToClientMsg::Exit { exit_reason } => ClientInstruction::Exit(exit_reason),
             ServerToClientMsg::Render { content } => ClientInstruction::Render(content),
             ServerToClientMsg::UnblockInputThread => ClientInstruction::UnblockInputThread,
@@ -302,6 +306,7 @@ impl From<&ClientInstruction> for ClientContext {
             ClientInstruction::Render(_) => ClientContext::Render,
             ClientInstruction::UnblockInputThread => ClientContext::UnblockInputThread,
             ClientInstruction::PaneAttached(_) => ClientContext::Connected,
+            ClientInstruction::PaneExitOutput(_) => ClientContext::Exit,
             ClientInstruction::Connected => ClientContext::Connected,
             ClientInstruction::Log(_) => ClientContext::Log,
             ClientInstruction::LogError(_) => ClientContext::LogError,
@@ -1564,6 +1569,11 @@ pub fn start_client(
                     );
                 }
                 pane_attachment_confirmed = true;
+            },
+            ClientInstruction::PaneExitOutput(output) => {
+                if pane_attachment.is_some() {
+                    exit_msg = output;
+                }
             },
             ClientInstruction::Render(output) => {
                 if !pane_attachment_confirmed {

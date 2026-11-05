@@ -42,9 +42,12 @@ embed-resource = "3"
 
 [dev-dependencies]
 insta = "1.48"
+nix = { workspace = true, features = ["term", "poll"] }
 ssh2 = "0.9.1"
 rand = { workspace = true }
 regex = { workspace = true }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
 vte = { workspace = true }
 
 [workspace]

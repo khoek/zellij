@@ -492,6 +492,13 @@ impl TryFrom<ProtoClientToServerMsg> for ClientToServerMsg {
 impl From<ServerToClientMsg> for ProtoServerToClientMsg {
     fn from(msg: ServerToClientMsg) -> Self {
         let message = match msg {
+            ServerToClientMsg::PaneExitOutput { output } => {
+                server_to_client_msg::Message::PaneExitOutput(
+                    crate::client_server_contract::client_server_contract::PaneExitOutputMsg {
+                        output,
+                    },
+                )
+            },
             ServerToClientMsg::PaneAttached { pane_id } => {
                 server_to_client_msg::Message::PaneAttached(
                     crate::client_server_contract::client_server_contract::PaneAttachedMsg {
@@ -776,6 +783,9 @@ impl TryFrom<ProtoServerToClientMsg> for ServerToClientMsg {
                 Ok(ServerToClientMsg::PaneAttached {
                     pane_id: msg.pane_id,
                 })
+            },
+            Some(server_to_client_msg::Message::PaneExitOutput(msg)) => {
+                Ok(ServerToClientMsg::PaneExitOutput { output: msg.output })
             },
             Some(server_to_client_msg::Message::UnblockInputThread(_)) => {
                 Ok(ServerToClientMsg::UnblockInputThread)

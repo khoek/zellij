@@ -4296,6 +4296,12 @@ fn test_client_messages() {
 
 fn test_server_messages() {
     test_server_roundtrip!(ServerToClientMsg::PaneAttached { pane_id: 17 });
+    for output in [
+        String::new(),
+        "To continue:\r\n  kai r 123e4567-e89b-12d3-a456-426614174000".to_owned(),
+    ] {
+        test_server_roundtrip!(ServerToClientMsg::PaneExitOutput { output });
+    }
     test_server_roundtrip!(ServerToClientMsg::Render {
         content: "Hello, World!".to_string(),
     });

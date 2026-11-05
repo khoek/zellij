@@ -119,14 +119,37 @@ impl Screen {
             .iter()
             .filter_map(|(client, target)| (*target == pane_id).then_some(*client))
             .collect();
-        if !clients.is_empty()
-            && self
-                .tabs
-                .values()
-                .any(|tab| tab.has_pane_with_pid(&pane_id))
+        if clients.is_empty() {
+            return Ok(());
+        }
+        if self
+            .tabs
+            .values()
+            .any(|tab| tab.has_pane_with_pid(&pane_id))
         {
             self.render_to_clients()?;
         }
+        // A fullscreen application restores its normal buffer before printing its exit summary.
+        // Preserve that text across the attachment's own alternate-screen teardown, without
+        // replaying a still-active fullscreen UI after a forced close.
+        let output = status
+            .and_then(|_| {
+                self.tabs
+                    .values()
+                    .find_map(|tab| tab.get_pane_with_id(pane_id))
+            })
+            .filter(|pane| !pane.is_alternate_mode_active())
+            .map(|pane| {
+                pane.pane_contents_with_ansi(None, false, None)
+                    .viewport
+                    .iter()
+                    .map(|line| line.trim_end())
+                    .collect::<Vec<_>>()
+                    .join("\r\n")
+                    .trim_matches(['\r', '\n'])
+                    .to_owned()
+            })
+            .unwrap_or_default();
         for client in clients {
             self.pane_clients.remove(&client);
             self.bus
@@ -134,6 +157,7 @@ impl Screen {
                 .send_to_server(ServerInstruction::PaneClientExit(
                     client,
                     status.unwrap_or(1),
+                    output.clone(),
                 ))?;
             self.remove_client(client)?;
         }

@@ -126,7 +126,7 @@ pub enum ServerInstruction {
     Render(Option<HashMap<ClientId, RenderPayload>>),
     UnblockInputThread,
     ClientExit(ClientId, Option<NotificationEnd>),
-    PaneClientExit(ClientId, i32),
+    PaneClientExit(ClientId, i32, String),
     RemoveClient(ClientId),
     Error(String),
     KillSession,
@@ -4364,7 +4364,11 @@ pub fn start_server_impl(
                     ))
                     .unwrap();
             },
-            ServerInstruction::PaneClientExit(client_id, status) => {
+            ServerInstruction::PaneClientExit(client_id, status, output) => {
+                if !output.is_empty() {
+                    let _ = os_input
+                        .send_to_client(client_id, ServerToClientMsg::PaneExitOutput { output });
+                }
                 let _ = os_input.send_to_client(
                     client_id,
                     ServerToClientMsg::Exit {

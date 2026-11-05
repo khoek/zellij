@@ -57,6 +57,7 @@ fn server_message_name(msg: &ServerToClientMsg) -> String {
         ServerToClientMsg::PaneMirror { .. } => "PaneMirror",
         ServerToClientMsg::PasteFromClipboard { .. } => "PasteFromClipboard",
         ServerToClientMsg::PaneAttached { .. } => "PaneAttached",
+        ServerToClientMsg::PaneExitOutput { .. } => "PaneExitOutput",
     }
     .to_string()
 }
