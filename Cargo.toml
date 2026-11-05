@@ -21,9 +21,9 @@ path = "src/bin/zellij-terminal.rs"
 required-features = ["terminal"]
 
 [dependencies]
-zellij-client = { path = "zellij-client/", version = "0.46.0-k.6dafbafd" }
-zellij-terminal = { path = "zellij-terminal/", version = "0.46.0-k.6dafbafd", optional = true }
-zellij-server = { path = "zellij-server/", version = "0.46.0-k.6dafbafd" }
+zellij-client = { path = "zellij-client/", version = "0.46.0-k.afbc1503" }
+zellij-terminal = { path = "zellij-terminal/", version = "0.46.0-k.afbc1503", optional = true }
+zellij-server = { path = "zellij-server/", version = "0.46.0-k.afbc1503" }
 zellij-utils = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true }
@@ -77,7 +77,7 @@ default-members = ["."]
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/zellij-org/zellij"
-version = "0.46.0-k.6dafbafd"
+version = "0.46.0-k.afbc1503"
 # NOTE: When updating this, modify `channel` in `rust-toolchain.toml` accordingly
 rust-version = "1.95"
 
@@ -137,8 +137,8 @@ winit = { version = "0.30", default-features = false, features = ["x11", "waylan
 names = { version = "0.14.0", default-features = false }
 include_dir = { version = "0.7.3", default-features = false }
 sha2 = { version = "0.11", default-features = false }
-zellij-server = { path = "zellij-server/", version = "0.46.0-k.6dafbafd" }
-zellij-utils = { path = "zellij-utils/", version = "0.46.0-k.6dafbafd" }
+zellij-server = { path = "zellij-server/", version = "0.46.0-k.afbc1503" }
+zellij-utils = { path = "zellij-utils/", version = "0.46.0-k.afbc1503" }
 
 [profile.dev]
 debug = "line-tables-only"
