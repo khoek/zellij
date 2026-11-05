@@ -95,6 +95,9 @@ continues to control whether its pane is removed. Scrolling and terminal sizing 
 Pane attachments require a running local session; they do not resurrect sessions or restart
 completed commands. The client checks that the server supports this attachment type.
 
+Pane attachments do not participate in nested-session discovery or emit its control frames to
+the host terminal. Ordinary session attachments retain nested-session discovery.
+
 For launchers, use the existing `new-tab --no-focus --start-suspended --close-on-exit` command,
 read its terminal pane ID with `list-panes --json`, then attach with `--pane`. No other client's
 focus changes during tab creation. Background tab creation retains valid session dimensions

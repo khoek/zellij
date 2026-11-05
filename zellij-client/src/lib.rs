@@ -1291,16 +1291,6 @@ pub fn start_client(
     let mut stdout = os_input.get_stdout_writer();
     stdout.write_all(ENABLE_BRACKETED_PASTE.as_bytes()).unwrap();
     stdout.write_all(ENABLE_FOCUS_REPORTING.as_bytes()).unwrap();
-    let announce = nested_session::NestedSessionMessage::Announce {
-        session_name: own_session_name.clone(),
-        capabilities: vec![
-            nested_session::NestedSessionCapability::NestedControl,
-            nested_session::NestedSessionCapability::HintReporting,
-        ],
-    };
-    stdout
-        .write_all(&nested_session::encode_frame(&announce))
-        .unwrap();
     let _ = stdout.flush();
     if is_a_reconnect {
         for message in os_input.remembered_host_state().replay() {
@@ -1311,7 +1301,9 @@ pub fn start_client(
     }
     let nested_reannounce = crate::nested_reannounce::NestedReannounce::spawn(
         os_input.clone(),
-        own_session_name.clone(),
+        pane_attachment
+            .is_none()
+            .then_some(own_session_name.clone()),
     );
 
     let (send_client_instructions, receive_client_instructions): ChannelWithContext<
