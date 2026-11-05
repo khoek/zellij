@@ -99,6 +99,8 @@ Pane attachments do not participate in nested-session discovery or emit its cont
 the host terminal. Ordinary session attachments retain nested-session discovery.
 Suspended commands start with the attachment's terminal size already applied, so applications
 cannot initialize against a zero-sized PTY and miss an early resize.
+Application bells and desktop notifications reach that pane's attachments, and host focus
+changes reach the application so it can notify when the terminal is unfocused.
 
 For launchers, use the existing `new-tab --no-focus --start-suspended --close-on-exit` command,
 read its terminal pane ID with `list-panes --json`, then attach with `--pane`. No other client's

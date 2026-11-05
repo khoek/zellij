@@ -5861,6 +5861,19 @@ impl Screen {
 
             let mut bell_state_changed = false;
             let mut has_bell = false;
+            // Pane attachments receive bells only from their own application. Capture them
+            // before the tab consumes the bell flags for session-level indicators.
+            let pane_bell_clients: Vec<ClientId> = self
+                .pane_clients
+                .iter()
+                .filter_map(|(&client, &pane_id)| {
+                    self.tabs
+                        .values()
+                        .find_map(|tab| tab.get_pane_with_id(pane_id))
+                        .filter(|pane| pane.has_bell())
+                        .map(|_| client)
+                })
+                .collect();
 
             if self.visual_bell {
                 let mut panes_to_flash: Vec<PaneId> = vec![];
@@ -5911,6 +5924,10 @@ impl Screen {
                     "\u{7}", // ANSI BEL
                 );
             }
+            output.add_post_vte_instruction_to_multiple_clients(
+                pane_bell_clients.iter().copied(),
+                "\u{7}",
+            );
 
             for (client_id, tab_index) in &self.active_tab_ids {
                 if self.watcher_clients.contains_key(client_id)
@@ -5952,7 +5969,11 @@ impl Screen {
                 }
             }
 
-            if non_watcher_output_was_dirty || has_bell || has_osc7_update {
+            if non_watcher_output_was_dirty
+                || has_bell
+                || !pane_bell_clients.is_empty()
+                || has_osc7_update
+            {
                 let mut serialized_output = output.serialize().context(err_context)?;
                 self.pace_structured_payloads(&mut serialized_output)
                     .context(err_context)?;
@@ -6200,7 +6221,11 @@ impl Screen {
         if self.pane_is_held_focused_by_another_client(&client_id, pane_id) {
             return;
         }
-        if let Ok(tab) = self.get_active_tab_mut(client_id) {
+        if let Some(tab) = self
+            .tabs
+            .values_mut()
+            .find(|tab| tab.has_pane_with_pid(&pane_id))
+        {
             tab.send_host_focus_event_to_pane(pane_id, focused);
         }
     }
@@ -6212,6 +6237,7 @@ impl Screen {
     ) -> bool {
         self.active_tab_ids
             .keys()
+            .chain(self.pane_clients.keys())
             .filter(|other_client_id| {
                 *other_client_id != client_id && !self.watcher_clients.contains_key(other_client_id)
             })
@@ -6292,7 +6318,18 @@ impl Screen {
         notifications: Vec<PendingNotification>,
         pane_id: u32,
     ) {
-        let all_clients: Vec<ClientId> = self.connected_clients.borrow().keys().copied().collect();
+        let all_clients: BTreeSet<ClientId> = self
+            .connected_clients
+            .borrow()
+            .keys()
+            .chain(self.pane_clients.keys())
+            .filter(|client| {
+                self.pane_clients
+                    .get(client)
+                    .is_none_or(|target| *target == PaneId::Terminal(pane_id))
+            })
+            .copied()
+            .collect();
         if all_clients.is_empty() || notifications.is_empty() {
             return;
         }
@@ -10294,6 +10331,9 @@ impl Screen {
         self.retain_only_existing_panes_in_pane_groups();
     }
     fn get_active_pane_id(&self, client_id: &ClientId) -> Option<PaneId> {
+        if let Some(pane_id) = self.pane_clients.get(client_id) {
+            return Some(*pane_id);
+        }
         let active_tab = self.get_active_tab(*client_id).ok()?;
         active_tab.get_active_pane_id(*client_id)
     }
