@@ -97,6 +97,8 @@ completed commands. The client checks that the server supports this attachment t
 
 Pane attachments do not participate in nested-session discovery or emit its control frames to
 the host terminal. Ordinary session attachments retain nested-session discovery.
+Suspended commands start with the attachment's terminal size already applied, so applications
+cannot initialize against a zero-sized PTY and miss an early resize.
 
 For launchers, use the existing `new-tab --no-focus --start-suspended --close-on-exit` command,
 read its terminal pane ID with `list-panes --json`, then attach with `--pane`. No other client's

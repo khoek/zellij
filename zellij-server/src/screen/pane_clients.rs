@@ -50,6 +50,10 @@ impl Screen {
         let Some(pane_id) = self.pane_clients.get(&client_id).copied() else {
             return Ok(());
         };
+        if let Some(tab_id) = self.tab_id_containing_pane(pane_id) {
+            self.recompute_tab_size(tab_id)?;
+            self.tabs.get_mut(&tab_id).map(|tab| tab.set_force_render());
+        }
         let held = self
             .tabs
             .values()
@@ -58,10 +62,6 @@ impl Screen {
             .unwrap_or(false);
         if held {
             self.pane_client_input(client_id, MirrorInput::Bytes(vec![b'\r']))?;
-        }
-        if let Some(tab_id) = self.tab_id_containing_pane(pane_id) {
-            self.recompute_tab_size(tab_id)?;
-            self.tabs.get_mut(&tab_id).map(|tab| tab.set_force_render());
         }
         Ok(())
     }

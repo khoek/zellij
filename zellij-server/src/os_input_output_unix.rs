@@ -108,28 +108,14 @@ impl AsyncReader for RawFdAsyncReader {
     }
 }
 
-fn set_terminal_size_using_fd(
-    fd: RawFd,
-    columns: u16,
-    rows: u16,
-    width_in_pixels: Option<u16>,
-    height_in_pixels: Option<u16>,
-) {
+fn set_terminal_size_using_fd(fd: RawFd, winsize: &Winsize) {
     // TODO: do this with the nix ioctl
-    let ws_xpixel = width_in_pixels.unwrap_or(0);
-    let ws_ypixel = height_in_pixels.unwrap_or(0);
-    let winsize = Winsize {
-        ws_col: columns,
-        ws_row: rows,
-        ws_xpixel,
-        ws_ypixel,
-    };
     // TIOCGWINSZ is an u32, but the second argument to ioctl is u64 on
     // some platforms. When checked on Linux, clippy will complain about
     // useless conversion.
     #[allow(clippy::useless_conversion)]
     unsafe {
-        ioctl(fd, TIOCSWINSZ.into(), &winsize)
+        ioctl(fd, TIOCSWINSZ.into(), winsize)
     };
 }
 
@@ -268,12 +254,13 @@ fn handle_terminal(
     quit_cb: Box<dyn Fn(PaneId, Option<i32>, RunCommand) + Send>,
     terminal_id: u32,
     pane_env: &PaneEnv,
+    size: Option<Winsize>,
 ) -> Result<(RawFd, RawFd)> {
     let err_context = || "failed to spawn child terminal".to_string();
 
     // Create a pipe to allow the child the communicate the shell's pid to its
     // parent.
-    match openpty(None, &orig_termios) {
+    match openpty(size.as_ref(), &orig_termios) {
         Ok(open_pty_res) => handle_openpty(open_pty_res, cmd, quit_cb, terminal_id, pane_env),
         Err(e) => match failover_cmd {
             Some(failover_cmd) => handle_terminal(
@@ -283,6 +270,7 @@ fn handle_terminal(
                 quit_cb,
                 terminal_id,
                 pane_env,
+                size,
             )
             .with_context(err_context),
             None => Err::<(i32, i32), _>(e)
@@ -297,8 +285,14 @@ fn handle_terminal(
 #[derive(Clone)]
 pub(crate) struct UnixPtyBackend {
     orig_termios: Arc<Mutex<Option<termios::Termios>>>,
-    terminal_id_to_raw_fd: Arc<Mutex<BTreeMap<u32, Option<RawFd>>>>,
+    terminals: Arc<Mutex<BTreeMap<u32, TerminalState>>>,
     next_terminal_id_counter: Arc<AtomicU32>,
+}
+
+#[derive(Default)]
+struct TerminalState {
+    fd: Option<RawFd>,
+    size: Option<Winsize>,
 }
 
 /// Try to write as many bytes from `buf` as possible to `fd` without blocking.
@@ -329,7 +323,7 @@ impl UnixPtyBackend {
         }
         Ok(Self {
             orig_termios: Arc::new(Mutex::new(current_termios)),
-            terminal_id_to_raw_fd: Arc::new(Mutex::new(BTreeMap::new())),
+            terminals: Arc::new(Mutex::new(BTreeMap::new())),
             next_terminal_id_counter: Arc::new(AtomicU32::new(0)),
         })
     }
@@ -347,6 +341,10 @@ impl UnixPtyBackend {
             .lock()
             .to_anyhow()
             .context("failed to lock orig_termios")?;
+        // Keep the latest size and FD publication under the same lock, so a resize cannot
+        // disappear between opening a suspended pane's PTY and starting its command.
+        let mut terminals = self.terminals.lock().to_anyhow()?;
+        let terminal = terminals.entry(terminal_id).or_default();
         let (pid_primary, child_fd) = handle_terminal(
             cmd,
             failover_cmd,
@@ -354,11 +352,9 @@ impl UnixPtyBackend {
             quit_cb,
             terminal_id,
             pane_env,
+            terminal.size,
         )?;
-        self.terminal_id_to_raw_fd
-            .lock()
-            .to_anyhow()?
-            .insert(terminal_id, Some(pid_primary));
+        terminal.fd = Some(pid_primary);
         let async_reader = Box::new(
             RawFdAsyncReader::new(pid_primary)
                 .map_err(|e| anyhow::anyhow!("failed to create async reader: {}", e))?,
@@ -381,15 +377,24 @@ impl UnixPtyBackend {
             )
         };
         match self
-            .terminal_id_to_raw_fd
+            .terminals
             .lock()
             .to_anyhow()
             .with_context(err_context)?
-            .get(&terminal_id)
+            .get_mut(&terminal_id)
         {
-            Some(Some(fd)) => {
+            Some(terminal) => {
                 if cols > 0 && rows > 0 {
-                    set_terminal_size_using_fd(*fd, cols, rows, width_in_pixels, height_in_pixels);
+                    let size = Winsize {
+                        ws_col: cols,
+                        ws_row: rows,
+                        ws_xpixel: width_in_pixels.unwrap_or(0),
+                        ws_ypixel: height_in_pixels.unwrap_or(0),
+                    };
+                    terminal.size = Some(size);
+                    if let Some(fd) = terminal.fd {
+                        set_terminal_size_using_fd(fd, &size);
+                    }
                 }
             },
             _ => {
@@ -405,13 +410,13 @@ impl UnixPtyBackend {
         let err_context = || format!("failed to write to stdin of TTY ID {}", terminal_id);
 
         let fd = match self
-            .terminal_id_to_raw_fd
+            .terminals
             .lock()
             .to_anyhow()
             .with_context(err_context)?
             .get(&terminal_id)
         {
-            Some(Some(fd)) => *fd,
+            Some(TerminalState { fd: Some(fd), .. }) => *fd,
             _ => {
                 return Err(anyhow!("could not find raw file descriptor")).with_context(err_context)
             },
@@ -424,13 +429,13 @@ impl UnixPtyBackend {
         let err_context = || format!("failed to tcdrain to TTY ID {}", terminal_id);
 
         match self
-            .terminal_id_to_raw_fd
+            .terminals
             .lock()
             .to_anyhow()
             .with_context(err_context)?
             .get(&terminal_id)
         {
-            Some(Some(fd)) => {
+            Some(TerminalState { fd: Some(fd), .. }) => {
                 termios::tcdrain(unsafe { BorrowedFd::borrow_raw(*fd) }).with_context(err_context)
             },
             _ => Err(anyhow!("could not find raw file descriptor")).with_context(err_context),
@@ -438,10 +443,12 @@ impl UnixPtyBackend {
     }
 
     pub fn tcgetpgrp(&self, terminal_id: u32) -> Option<i32> {
-        match self.terminal_id_to_raw_fd.lock().ok()?.get(&terminal_id) {
-            Some(Some(fd)) => unistd::tcgetpgrp(unsafe { BorrowedFd::borrow_raw(*fd) })
-                .ok()
-                .map(|pgid| pgid.as_raw()),
+        match self.terminals.lock().ok()?.get(&terminal_id) {
+            Some(TerminalState { fd: Some(fd), .. }) => {
+                unistd::tcgetpgrp(unsafe { BorrowedFd::borrow_raw(*fd) })
+                    .ok()
+                    .map(|pgid| pgid.as_raw())
+            },
             _ => None,
         }
     }
@@ -462,17 +469,14 @@ impl UnixPtyBackend {
     }
 
     pub fn reserve_terminal_id(&self, terminal_id: u32) {
-        self.terminal_id_to_raw_fd
+        self.terminals
             .lock()
             .unwrap()
-            .insert(terminal_id, None);
+            .insert(terminal_id, TerminalState::default());
     }
 
     pub fn clear_terminal_id(&self, terminal_id: u32) {
-        self.terminal_id_to_raw_fd
-            .lock()
-            .unwrap()
-            .remove(&terminal_id);
+        self.terminals.lock().unwrap().remove(&terminal_id);
     }
 
     pub fn next_terminal_id(&self) -> Option<u32> {
@@ -489,6 +493,50 @@ mod tests {
     use nix::fcntl::{fcntl, FcntlArg, OFlag};
     use nix::sys::termios;
     use std::io::{Read, Write};
+
+    #[tokio::test]
+    async fn suspended_terminal_starts_with_its_latest_requested_size() {
+        let backend = UnixPtyBackend::new().unwrap();
+        let terminal_id = backend.next_terminal_id().unwrap();
+        backend.reserve_terminal_id(terminal_id);
+        backend
+            .set_terminal_size(terminal_id, 80, 24, None, None)
+            .unwrap();
+        backend
+            .set_terminal_size(terminal_id, 120, 40, None, None)
+            .unwrap();
+        let (exit_tx, exit_rx) = std::sync::mpsc::channel();
+        let (mut reader, _) = backend
+            .spawn_terminal(
+                RunCommand {
+                    command: "/bin/sh".into(),
+                    args: vec!["-c".to_owned(), "stty size".to_owned()],
+                    ..RunCommand::default()
+                },
+                None,
+                Box::new(move |_, status, _| exit_tx.send(status).unwrap()),
+                terminal_id,
+                &PaneEnv::default(),
+            )
+            .unwrap();
+        let mut output = Vec::new();
+        while !output.contains(&b'\n') {
+            output.extend(
+                tokio::time::timeout(std::time::Duration::from_secs(5), reader.read_chunk(1024))
+                    .await
+                    .unwrap()
+                    .unwrap(),
+            );
+        }
+        assert_eq!(String::from_utf8(output).unwrap().trim(), "40 120");
+        assert_eq!(
+            exit_rx
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .unwrap(),
+            Some(0)
+        );
+        backend.clear_terminal_id(terminal_id);
+    }
 
     #[test]
     fn raw_fd_reader_returns_exact_bytes_in_order() {
