@@ -442,6 +442,7 @@ fn test_client_messages() {
     });
     test_client_roundtrip!(ClientToServerMsg::FirstClientConnected {
         cli_assets: CliAssets {
+            pane_attachment: None,
             config_file_path: Some(PathBuf::from("/path/to/config/file.kdl")),
             config_dir: Some(PathBuf::from("/path/to/config/dir")),
             should_ignore_config: true,
@@ -463,6 +464,7 @@ fn test_client_messages() {
     });
     test_client_roundtrip!(ClientToServerMsg::FirstClientConnected {
         cli_assets: CliAssets {
+            pane_attachment: None,
             config_file_path: Some(PathBuf::from("/path/to/config/file.kdl")),
             config_dir: Some(PathBuf::from("/path/to/config/dir")),
             should_ignore_config: true,
@@ -496,6 +498,7 @@ fn test_client_messages() {
     });
     test_client_roundtrip!(ClientToServerMsg::FirstClientConnected {
         cli_assets: CliAssets {
+            pane_attachment: Some(17),
             config_file_path: Some(PathBuf::from("/path/to/config/file.kdl")),
             config_dir: Some(PathBuf::from("/path/to/config/dir")),
             should_ignore_config: true,
@@ -4292,6 +4295,13 @@ fn test_client_messages() {
 }
 
 fn test_server_messages() {
+    test_server_roundtrip!(ServerToClientMsg::PaneAttached { pane_id: 17 });
+    for output in [
+        String::new(),
+        "To continue:\r\n  kai r 123e4567-e89b-12d3-a456-426614174000".to_owned(),
+    ] {
+        test_server_roundtrip!(ServerToClientMsg::PaneExitOutput { output });
+    }
     test_server_roundtrip!(ServerToClientMsg::Render {
         content: "Hello, World!".to_string(),
     });

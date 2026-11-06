@@ -1,5 +1,7 @@
+mod pane_clients;
 use base64::engine::general_purpose::STANDARD as BASE64_ENCODER;
 use base64::engine::Engine as _;
+pub(crate) use pane_clients::strip_nested_session_frames;
 
 use crate::panes::Row;
 
@@ -1852,8 +1854,17 @@ fn append_sideband_instruction(sideband: &mut Vec<u8>, instruction: &str) {
     sideband.extend_from_slice(instruction.as_bytes());
 }
 
+type PaneRenderAssets = (
+    Vec<CharacterChunk>,
+    Option<String>,
+    Vec<SixelImageChunk>,
+    Vec<KittyImageChunk>,
+);
+
 #[derive(Clone, Debug, Default)]
 pub struct Output {
+    captured_panes: HashSet<PaneId>,
+    pane_assets: HashMap<PaneId, PaneRenderAssets>,
     pre_vte_instructions: HashMap<ClientId, Vec<String>>,
     post_vte_instructions: HashMap<ClientId, Vec<String>>,
     client_character_chunks: HashMap<ClientId, Vec<CharacterChunk>>,
@@ -2366,10 +2377,12 @@ impl Output {
                     client_serialized_render_instructions.push_str(&vte_instruction);
                 }
             }
-            serialized_render_instructions.insert(
-                client_id,
-                RenderPayload::Ansi(client_serialized_render_instructions),
-            );
+            if !client_serialized_render_instructions.is_empty() {
+                serialized_render_instructions.insert(
+                    client_id,
+                    RenderPayload::Ansi(client_serialized_render_instructions),
+                );
+            }
         }
         Ok(serialized_render_instructions)
     }

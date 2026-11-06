@@ -291,6 +291,12 @@ pub enum ClientToServerMsg {
 // Types of messages sent from the server to the client
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum ServerToClientMsg {
+    PaneAttached {
+        pane_id: u32,
+    },
+    PaneExitOutput {
+        output: String,
+    },
     Render {
         content: String,
     },

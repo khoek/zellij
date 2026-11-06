@@ -63,6 +63,8 @@ pub fn host_terminal_env_from<F: Fn(&str) -> Option<String>>(
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct CliAssets {
+    #[serde(default)]
+    pub pane_attachment: Option<u32>,
     pub config_file_path: Option<PathBuf>,
     pub config_dir: Option<PathBuf>,
     pub should_ignore_config: bool,

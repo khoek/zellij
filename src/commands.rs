@@ -804,6 +804,10 @@ pub(crate) fn start_client(opts: CliArgs) {
                     std::process::exit(2);
                 }
 
+                if args.pane.is_some() {
+                    eprintln!("Pane attachment requires a local session.");
+                    std::process::exit(2);
+                }
                 if !args.initial_command.is_empty() {
                     eprintln!("Cannot run an initial command on a remote session.");
                     std::process::exit(2);
@@ -824,6 +828,15 @@ pub(crate) fn start_client(opts: CliArgs) {
                     std::process::exit(2);
                 }
             } else {
+                if args.pane.is_some() {
+                    let name = args.session_name.as_deref().unwrap_or("");
+                    if name.is_empty()
+                        || !zellij_utils::sessions::session_exists(name).unwrap_or(false)
+                    {
+                        eprintln!("Pane attachment requires an existing running session");
+                        std::process::exit(1);
+                    }
+                }
                 should_create_detached = create_background;
 
                 let Resolved {

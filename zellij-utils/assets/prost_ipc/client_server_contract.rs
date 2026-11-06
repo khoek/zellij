@@ -1559,6 +1559,8 @@ pub struct Position {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CliAssets {
+    #[prost(uint32, optional, tag="15")]
+    pub pane_attachment: ::core::option::Option<u32>,
     #[prost(string, optional, tag="1")]
     pub config_file_path: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(string, optional, tag="2")]
@@ -4760,7 +4762,7 @@ impl MirrorCloseReason {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ServerToClientMsg {
-    #[prost(oneof="server_to_client_msg::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27")]
+    #[prost(oneof="server_to_client_msg::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29")]
     pub message: ::core::option::Option<server_to_client_msg::Message>,
 }
 /// Nested message and enum types in `ServerToClientMsg`.
@@ -4822,7 +4824,23 @@ pub mod server_to_client_msg {
         PaneMirror(super::ServerPaneMirrorMsg),
         #[prost(message, tag="27")]
         PasteFromClipboard(super::PasteFromClipboardMsg),
+        #[prost(message, tag="28")]
+        PaneAttached(super::PaneAttachedMsg),
+        #[prost(message, tag="29")]
+        PaneExitOutput(super::PaneExitOutputMsg),
     }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PaneAttachedMsg {
+    #[prost(uint32, tag="1")]
+    pub pane_id: u32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PaneExitOutputMsg {
+    #[prost(string, tag="1")]
+    pub output: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

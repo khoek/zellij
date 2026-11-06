@@ -901,6 +901,32 @@ impl TestSession {
         }
     }
 
+    pub fn attach_pane(&self, pane_id: u32, size: Size) -> TestClient {
+        use clap::Parser;
+
+        let (fake_client_os_api, fake_client_handle) = FakeClientOsApi::new(size, None);
+        let mut cli_args = self.cli_args.clone();
+        cli_args.command = CliArgs::parse_from([
+            "zellij",
+            "attach",
+            &self.session_name,
+            "--pane",
+            &pane_id.to_string(),
+        ])
+        .command;
+        let thread = spawn_client_thread(
+            fake_client_os_api,
+            cli_args,
+            self.config.clone(),
+            self.config_options.clone(),
+            ClientInfo::Attach(self.session_name.clone(), self.config_options.clone()),
+        );
+        TestClient {
+            fake_client_handle,
+            thread: Some(thread),
+        }
+    }
+
     pub fn attach_watcher(&self, size: Size) -> TestClient {
         let (fake_client_os_api, fake_client_handle) = FakeClientOsApi::new(size, None);
         let thread = spawn_client_thread(
