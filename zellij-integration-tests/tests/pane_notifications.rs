@@ -40,7 +40,11 @@ fn pane_attachment_receives_only_its_applications_notifications() {
     attachment.wait_until("attached", |grid| grid.contains("Ready"));
     let other = session.attach_pane(other_terminal.terminal_id(), size);
     other.wait_until("other attached", |grid| grid.contains("Other"));
+    other_terminal.output(b"\x1b]7501;state=done:app=codex\x1b\\Other done");
+    other.wait_until("other pane finished", |grid| grid.contains("Other done"));
+    std::thread::sleep(std::time::Duration::from_millis(200));
     let other_before = other.raw_bytes().len();
+    let other_messages_before = other.received_server_messages().len();
     let before = attachment.raw_bytes().len();
     terminal.output(b"\x07");
     attachment.wait_until_raw_output("application bell", |bytes| bytes[before..].contains(&7));
@@ -54,6 +58,20 @@ fn pane_attachment_receives_only_its_applications_notifications() {
             bytes[before..].windows(4).any(|part| part == b"\x1b]9;")
         });
     }
+    terminal.output(b"\x1b]7501;state=done:app=codex\x1b\\");
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    let idle_output = other.raw_bytes();
+    assert_eq!(
+        &idle_output[other_before..],
+        b"",
+        "another pane finishing must not create output or attention in the idle terminal"
+    );
+    assert!(
+        !other.received_server_messages()[other_messages_before..]
+            .iter()
+            .any(|message| matches!(message.as_str(), "Render" | "RenderFrame")),
+        "even an empty render can write synchronized-output markers to the idle terminal"
+    );
     other_terminal.output(b" barrier");
     other.wait_until("other pane barrier", |grid| grid.contains("barrier"));
     assert!(!other.raw_bytes()[other_before..].contains(&7));

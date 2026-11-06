@@ -104,6 +104,7 @@ into the host terminal after leaving its alternate screen. Application exit summ
 Codex's resume command and session ID, remain available in ordinary terminal scrollback.
 Application bells and desktop notifications reach that pane's attachments, and host focus
 changes reach the application so it can notify when the terminal is unfocused.
+Idle attachments stay silent when another pane redraws or finishes.
 
 For launchers, use the existing `new-tab --no-focus --start-suspended --close-on-exit` command,
 read its terminal pane ID with `list-panes --json`, then attach with `--pane`. No other client's

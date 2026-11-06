@@ -2377,10 +2377,12 @@ impl Output {
                     client_serialized_render_instructions.push_str(&vte_instruction);
                 }
             }
-            serialized_render_instructions.insert(
-                client_id,
-                RenderPayload::Ansi(client_serialized_render_instructions),
-            );
+            if !client_serialized_render_instructions.is_empty() {
+                serialized_render_instructions.insert(
+                    client_id,
+                    RenderPayload::Ansi(client_serialized_render_instructions),
+                );
+            }
         }
         Ok(serialized_render_instructions)
     }

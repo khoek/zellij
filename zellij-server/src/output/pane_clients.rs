@@ -78,6 +78,10 @@ impl Output {
         self.client_kitty_visible_panes
             .insert(client, HashSet::from([pane_id]));
         self.popup_covers.remove(&client);
+        // Unrelated panes rendering must not create output activity in this terminal.
+        if !clear && !self.has_pane_render(pane_id) {
+            return Ok(());
+        }
         let x = pane.get_content_x();
         let y = pane.get_content_y();
         if let Some((mut characters, raw, mut sixels, mut kitty)) =
