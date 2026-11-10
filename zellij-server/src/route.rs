@@ -2942,6 +2942,7 @@ pub(crate) fn route_thread_main(
     let mut first_instruction =
         first_instruction.map(|instruction| (instruction, ErrorContext::default()));
     let mut cleanup_requested = false;
+    let mut pane_attachment = None;
     'route_loop: loop {
         let received = match first_instruction.take() {
             Some(instruction) => Ok(instruction),
@@ -2962,6 +2963,43 @@ pub(crate) fn route_thread_main(
                         .to_anyhow()
                         .ok()
                         .and_then(|r| r.as_ref().map(|r| r.senders.clone()));
+
+                    if pane_attachment.is_some() {
+                        use zellij_utils::pane_mirror::MirrorInput;
+                        let input = match &instruction {
+                            ClientToServerMsg::Key {
+                                key,
+                                raw_bytes,
+                                is_kitty_keyboard_protocol,
+                            } => Some(MirrorInput::Key {
+                                key: key.clone(),
+                                raw_bytes: raw_bytes.clone(),
+                                is_kitty_keyboard_protocol: *is_kitty_keyboard_protocol,
+                            }),
+                            ClientToServerMsg::Action {
+                                action: Action::Write { bytes, .. },
+                                ..
+                            } => Some(MirrorInput::Bytes(bytes.clone())),
+                            ClientToServerMsg::Action {
+                                action: Action::MouseEvent { event },
+                                ..
+                            } => Some(MirrorInput::Mouse(*event)),
+                            ClientToServerMsg::Action {
+                                action: Action::Detach,
+                                ..
+                            } => None,
+                            ClientToServerMsg::Action { .. } => return Ok(false),
+                            _ => None,
+                        };
+                        if let Some(input) = input {
+                            if let Some(senders) = &senders {
+                                senders.send_to_screen(ScreenInstruction::PaneClientInput(
+                                    client_id, input,
+                                ))?;
+                            }
+                            return Ok(false);
+                        }
+                    }
 
                     // Check if this is a watcher client and ignore input messages
                     let is_watcher = session_state.read().unwrap().is_watcher(&client_id);
@@ -3201,6 +3239,12 @@ pub(crate) fn route_thread_main(
                             client_id: maybe_client_id,
                             is_cli_client,
                         } => {
+                            if is_cli_client && !wait_for_session_to_be_ready(&session_data) {
+                                os_input.send_to_client(client_id, ServerToClientMsg::LogError {
+                                    lines: vec!["The session did not finish starting".to_owned()],
+                                })?;
+                                return Ok(false);
+                            }
                             let cli_client_id = client_id;
                             let client_id = if is_cli_client {
                                 // for cli clients, we want to default to the last active client
@@ -3477,6 +3521,7 @@ pub(crate) fn route_thread_main(
                             pane_to_focus: pane_id_to_focus,
                             is_web_client,
                         } => {
+                            pane_attachment = cli_assets.pane_attachment;
                             wait_for_session_to_be_ready(&session_data);
                             let allow_web_connections = session_data
                                 .read()

@@ -492,6 +492,20 @@ impl TryFrom<ProtoClientToServerMsg> for ClientToServerMsg {
 impl From<ServerToClientMsg> for ProtoServerToClientMsg {
     fn from(msg: ServerToClientMsg) -> Self {
         let message = match msg {
+            ServerToClientMsg::PaneExitOutput { output } => {
+                server_to_client_msg::Message::PaneExitOutput(
+                    crate::client_server_contract::client_server_contract::PaneExitOutputMsg {
+                        output,
+                    },
+                )
+            },
+            ServerToClientMsg::PaneAttached { pane_id } => {
+                server_to_client_msg::Message::PaneAttached(
+                    crate::client_server_contract::client_server_contract::PaneAttachedMsg {
+                        pane_id,
+                    },
+                )
+            },
             ServerToClientMsg::Render { content } => {
                 server_to_client_msg::Message::Render(RenderMsg { content })
             },
@@ -764,6 +778,14 @@ impl TryFrom<ProtoServerToClientMsg> for ServerToClientMsg {
             }),
             Some(server_to_client_msg::Message::RenderFrame(msg)) => {
                 Ok(ServerToClientMsg::RenderFrame { frame: msg.frame })
+            },
+            Some(server_to_client_msg::Message::PaneAttached(msg)) => {
+                Ok(ServerToClientMsg::PaneAttached {
+                    pane_id: msg.pane_id,
+                })
+            },
+            Some(server_to_client_msg::Message::PaneExitOutput(msg)) => {
+                Ok(ServerToClientMsg::PaneExitOutput { output: msg.output })
             },
             Some(server_to_client_msg::Message::UnblockInputThread(_)) => {
                 Ok(ServerToClientMsg::UnblockInputThread)
@@ -1056,6 +1078,7 @@ impl From<crate::input::cli_assets::CliAssets>
             config_dir: cli_assets
                 .config_dir
                 .map(|p| p.to_string_lossy().to_string()),
+            pane_attachment: cli_assets.pane_attachment,
             should_ignore_config: cli_assets.should_ignore_config,
             configuration_options: cli_assets.configuration_options.map(|o| o.into()),
             layout: cli_assets.layout.map(|l| l.into()),
@@ -1085,6 +1108,7 @@ impl TryFrom<crate::client_server_contract::client_server_contract::CliAssets>
         Ok(Self {
             config_file_path: cli_assets.config_file_path.map(PathBuf::from),
             config_dir: cli_assets.config_dir.map(PathBuf::from),
+            pane_attachment: cli_assets.pane_attachment,
             should_ignore_config: cli_assets.should_ignore_config,
             configuration_options: cli_assets
                 .configuration_options

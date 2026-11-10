@@ -10,6 +10,7 @@ use zellij_utils::nested_session::{
 
 #[derive(Clone)]
 pub struct NestedReannounce {
+    enabled: bool,
     scheduler: Arc<Mutex<ReannounceScheduler>>,
     wakeup: Arc<Condvar>,
     stop: Arc<AtomicBool>,
@@ -17,13 +18,31 @@ pub struct NestedReannounce {
 }
 
 impl NestedReannounce {
-    pub fn spawn(os_input: Box<dyn ClientOsApi>, session_name: String) -> Self {
+    pub fn spawn(os_input: Box<dyn ClientOsApi>, session_name: Option<String>) -> Self {
         let handle = NestedReannounce {
+            enabled: session_name.is_some(),
             scheduler: Arc::new(Mutex::new(ReannounceScheduler::new(Instant::now()))),
             wakeup: Arc::new(Condvar::new()),
             stop: Arc::new(AtomicBool::new(false)),
             thread: Arc::new(Mutex::new(None)),
         };
+        // A pane attachment exposes an application, not a nested session. It must not emit
+        // discovery frames or accept host contact that could enable later control frames.
+        let Some(session_name) = session_name else {
+            return handle;
+        };
+        let announce = NestedSessionMessage::Announce {
+            session_name: session_name.clone(),
+            capabilities: vec![
+                NestedSessionCapability::NestedControl,
+                NestedSessionCapability::HintReporting,
+            ],
+        };
+        let mut stdout = os_input.get_stdout_writer();
+        stdout
+            .write_all(&nested_session::encode_frame(&announce))
+            .unwrap();
+        let _ = stdout.flush();
         let scheduler = handle.scheduler.clone();
         let wakeup = handle.wakeup.clone();
         let stop = handle.stop.clone();
@@ -69,6 +88,9 @@ impl NestedReannounce {
     }
 
     pub fn note_host_contact(&self) {
+        if !self.enabled {
+            return;
+        }
         let first_contact = self
             .scheduler
             .lock()

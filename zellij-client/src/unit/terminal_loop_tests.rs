@@ -149,6 +149,19 @@ struct TestWriter {
     buffer: Arc<Mutex<Vec<u8>>>,
 }
 
+#[test]
+fn application_pane_disables_nested_discovery_and_ignores_host_contact() {
+    let (_stdin_tx, stdin_rx) = mpsc::unbounded_channel();
+    let (_signal_tx, signal_rx) = mpsc::unbounded_channel();
+    let os = TestClientOsApi::new(stdin_rx, signal_rx);
+    let nested = crate::nested_reannounce::NestedReannounce::spawn(Box::new(os.clone()), None);
+
+    nested.note_host_contact();
+    assert!(!nested.host_contacted());
+    nested.stop();
+    assert!(os.stdout_buffer.lock().unwrap().is_empty());
+}
+
 impl Write for TestWriter {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         self.buffer.lock().unwrap().extend_from_slice(buf);

@@ -1011,6 +1011,22 @@ fn new_tab(screen: &mut Screen, pid: u32, tab_index: usize) {
 }
 
 #[test]
+fn pane_attachment_headless_tab_retains_valid_dimensions() {
+    let size = Size {
+        cols: 121,
+        rows: 20,
+    };
+    let mut screen = create_new_screen(size, true, true);
+    new_tab(&mut screen, 1, 0);
+    screen.remove_client(1).unwrap();
+    screen
+        .new_tab(1, (vec![], vec![]), Some("background".to_owned()), None)
+        .unwrap();
+    assert_eq!(screen.tabs[&1].size, size);
+    assert!(screen.client_sizes.is_empty());
+}
+
+#[test]
 fn open_new_tab() {
     let size = Size {
         cols: 121,

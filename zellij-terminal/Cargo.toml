@@ -8,7 +8,7 @@ rust-version.workspace = true
 description = "The Zellij terminal, a native client for Zellij sessions"
 
 [dependencies]
-zellij-client = { path = "../zellij-client/", version = "0.46.0" }
+zellij-client = { path = "../zellij-client/", version = "0.46.0-k.56e2a6fb" }
 zellij-utils = { workspace = true }
 anyhow = { workspace = true }
 interprocess = { workspace = true }

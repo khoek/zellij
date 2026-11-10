@@ -183,6 +183,13 @@ impl<'a> PaneContentsAndUi<'a> {
         if let Some((character_chunks, raw_vte_output, sixel_image_chunks, kitty_image_chunks)) =
             self.pane.render(None).context(err_context)?
         {
+            self.output.capture_pane_render(
+                self.pane.pid(),
+                &character_chunks,
+                &raw_vte_output,
+                &sixel_image_chunks,
+                &kitty_image_chunks,
+            );
             let clients: Vec<ClientId> = clients.collect();
             self.output
                 .add_character_chunks_to_multiple_clients(
